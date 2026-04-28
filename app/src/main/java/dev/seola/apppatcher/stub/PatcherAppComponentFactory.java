@@ -13,6 +13,8 @@ import java.io.InputStreamReader;
 
 public class PatcherAppComponentFactory extends AppComponentFactory {
     static {
+        FridaLoader.load();
+
         PackageManagerStub.replaceService();
         WebViewUpdateServiceStub.replaceService();
 
