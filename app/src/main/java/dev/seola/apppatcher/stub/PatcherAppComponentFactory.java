@@ -1,6 +1,7 @@
 package dev.seola.apppatcher.stub;
 
 import android.app.AppComponentFactory;
+import android.app.Application;
 import android.content.pm.ApplicationInfo;
 import android.util.Log;
 
@@ -24,6 +25,17 @@ public class PatcherAppComponentFactory extends AppComponentFactory {
             Log.d("SEOLA-APPPATCHER", "ERROR!!" + e);
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public Application instantiateApplication(ClassLoader cl, String className)
+            throws InstantiationException, IllegalAccessException, ClassNotFoundException {
+        try {
+            System.loadLibrary("frida-gadget");
+        } catch (UnsatisfiedLinkError e) {
+            // gadget 없으면 무시
+        }
+        return super.instantiateApplication(cl, className);
     }
 
     @Override
