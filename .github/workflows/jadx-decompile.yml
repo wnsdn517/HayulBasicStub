@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       apk_url:
-        description: 'APK / APKM 다운로드 URL'
+        description: 'APKMirror 다운로드 페이지 URL (download/?key=... 형식)'
         required: true
 
 jobs:
@@ -12,6 +12,56 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Install dependencies
+        run: |
+          pip install playwright beautifulsoup4 -q
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Download APK/APKM via Playwright
+        run: |
+          python3 - <<'EOF'
+          import asyncio
+          from playwright.async_api import async_playwright
+
+          async def main():
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(headless=True)
+                  ctx = await browser.new_context(
+                      user_agent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
+                  )
+                  page = await ctx.new_page()
+
+                  await page.goto("${{ inputs.apk_url }}", wait_until="networkidle")
+
+                  # 실제 다운로드 링크 추출
+                  async with ctx.expect_download() as dl_info:
+                      btn = await page.query_selector("a[href*='download.php'], .downloadButton a, a[rel='nofollow'][href*='.apk']")
+                      if btn:
+                          await btn.click()
+                      else:
+                          raise Exception("Download button not found")
+
+                  download = await dl_info.value
+                  await download.save_as("downloaded")
+                  print(f"Downloaded: {download.suggested_filename}")
+                  await browser.close()
+
+          asyncio.run(main())
+          EOF
+
+      - name: Prepare APK
+        run: |
+          FILE_TYPE=$(file -b downloaded)
+          echo "File type: $FILE_TYPE"
+          if echo "$FILE_TYPE" | grep -qi zip; then
+            echo "APKM detected, extracting base.apk..."
+            unzip -q downloaded base.apk -d apkm_extracted
+            cp apkm_extracted/base.apk target.apk
+          else
+            cp downloaded target.apk
+          fi
+
       - name: Download JADX
         run: |
           JADX_URL=$(curl -s https://api.github.com/repos/skylot/jadx/releases/latest \
@@ -23,28 +73,8 @@ jobs:
           unzip -q jadx.zip -d jadx
           chmod +x jadx/bin/jadx
 
-      - name: Download file
-        run: |
-          wget -q --user-agent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36" \
-            --referer="https://www.apkmirror.com/" \
-            "${{ inputs.apk_url }}" -O downloaded
-
-      - name: Prepare APK
-        run: |
-          FILE_TYPE=$(file -b downloaded)
-          echo "File type: $FILE_TYPE"
-
-          if echo "$FILE_TYPE" | grep -qi zip; then
-            echo "APKM detected, extracting base.apk..."
-            unzip -q downloaded 'base.apk' -d apkm_extracted
-            cp apkm_extracted/base.apk target.apk
-          else
-            cp downloaded target.apk
-          fi
-
       - name: Decompile with JADX
-        run: |
-          ./jadx/bin/jadx --threads-count 4 -d decompiled target.apk
+        run: ./jadx/bin/jadx --threads-count 4 -d decompiled target.apk
 
       - name: Zip decompiled output
         run: zip -r decompiled.zip decompiled/
