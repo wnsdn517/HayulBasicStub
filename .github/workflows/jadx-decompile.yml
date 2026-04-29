@@ -1,0 +1,44 @@
+name: JADX Decompile APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'APK 다운로드 URL'
+        required: true
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download JADX
+        run: |
+          JADX_URL=$(curl -s https://api.github.com/repos/skylot/jadx/releases/latest \
+            | grep browser_download_url \
+            | grep '"jadx-[0-9][^"]*\.zip"' \
+            | head -1 \
+            | cut -d'"' -f4)
+          echo "Downloading JADX from $JADX_URL"
+          wget -q "$JADX_URL" -O jadx.zip
+          unzip -q jadx.zip -d jadx
+          chmod +x jadx/bin/jadx
+
+      - name: Download APK
+        run: |
+          wget -q "${{ inputs.apk_url }}" -O target.apk
+
+      - name: Decompile with JADX
+        run: |
+          ./jadx/bin/jadx --threads-count 4 -d decompiled target.apk
+
+      - name: Zip decompiled output
+        run: |
+          zip -r decompiled.zip decompiled/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: decompiled-apk
+          path: decompiled.zip
+          retention-days: 7
