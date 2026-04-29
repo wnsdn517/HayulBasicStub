@@ -13,9 +13,9 @@ jobs:
 
     steps:
       - name: Install Python dependencies
-        run: pip install cloudscraper beautifulsoup4 tqdm -q
+        run: pip install cloudscraper beautifulsoup4 -q
 
-      - name: Download APK/APKM from APKMirror
+      - name: Download APKM from APKMirror
         run: |
           python3 - <<'EOF'
           import cloudscraper
@@ -39,40 +39,20 @@ jobs:
 
           r = scraper.head(base_url + data["href"], headers=headers, allow_redirects=True)
           r = scraper.get(r.url, headers=headers, stream=True)
-          with open("downloaded", "wb") as f:
+          with open("target.apkm", "wb") as f:
               for chunk in r.iter_content(1024 * 1024):
                   if chunk: f.write(chunk)
           print("Downloaded")
           EOF
 
-      - name: Convert APKM to APK
+      - name: Merge APKM with APKEditor
         run: |
-          FILE_TYPE=$(file -b downloaded)
-          echo "File type: $FILE_TYPE"
-
-          if echo "$FILE_TYPE" | grep -qi zip; then
-            # .apkm 여부 확인
-            if unzip -l downloaded | grep -q 'info.json'; then
-              echo "APKM detected, merging with APKEditor..."
-
-              # APKEditor 다운로드
-              APKEDITOR_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest \
-                | jq -r '.assets[] | select(.name | test("APKEditor.*\\.jar$")) | .browser_download_url' \
-                | head -1)
-              wget -q "$APKEDITOR_URL" -O APKEditor.jar
-
-              mkdir apkm_extracted
-              unzip -q downloaded -d apkm_extracted
-
-              # split APK 머지
-              java -jar APKEditor.jar m -i apkm_extracted -o merged.apk
-              cp merged.apk target.apk
-            else
-              cp downloaded target.apk
-            fi
-          else
-            cp downloaded target.apk
-          fi
+          APKEDITOR_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest \
+            | jq -r '.assets[] | select(.name | test("APKEditor.*\\.jar$")) | .browser_download_url' \
+            | head -1)
+          wget -q "$APKEDITOR_URL" -O APKEditor.jar
+          unzip -q target.apkm -d apkm_extracted
+          java -jar APKEditor.jar m -i apkm_extracted -o merged.apk
 
       - name: Download JADX
         run: |
@@ -84,7 +64,7 @@ jobs:
           chmod +x jadx/bin/jadx
 
       - name: Decompile with JADX
-        run: ./jadx/bin/jadx --threads-count 4 -d decompiled target.apk
+        run: ./jadx/bin/jadx --threads-count 4 -d decompiled merged.apk
 
       - name: Zip decompiled output
         run: zip -r decompiled.zip decompiled/
