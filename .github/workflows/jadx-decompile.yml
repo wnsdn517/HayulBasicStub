@@ -64,7 +64,7 @@ jobs:
           chmod +x jadx/bin/jadx
 
       - name: Decompile with JADX
-        run: ./jadx/bin/jadx --threads-count 4 -d decompiled merged.apk
+        run: ./jadx/bin/jadx --threads-count 4 -d decompiled merged.apk || true
 
       - name: Zip decompiled output
         run: zip -r decompiled.zip decompiled/
