@@ -18,19 +18,17 @@ jobs:
       - name: Download APK/APKM from APKMirror
         run: |
           python3 - <<'EOF'
-          import time, cloudscraper, os
-          from urllib.parse import unquote
+          import cloudscraper
           from bs4 import BeautifulSoup
 
           base_url = "https://www.apkmirror.com"
           headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0"}
           scraper = cloudscraper.create_scraper()
-          url = "${{ inputs.apk_url }}"
 
           def get_soup(u):
               return BeautifulSoup(scraper.get(u, headers=headers, timeout=30).text, "html.parser")
 
-          soup = get_soup(url)
+          soup = get_soup("${{ inputs.apk_url }}")
           btn = soup.find("a", {"class": "downloadButton"})
           if not btn: raise ValueError("downloadButton not found")
 
@@ -47,14 +45,31 @@ jobs:
           print("Downloaded")
           EOF
 
-      - name: Prepare APK
+      - name: Convert APKM to APK
         run: |
           FILE_TYPE=$(file -b downloaded)
           echo "File type: $FILE_TYPE"
+
           if echo "$FILE_TYPE" | grep -qi zip; then
-            echo "APKM detected, extracting base.apk..."
-            unzip -q downloaded base.apk -d apkm_extracted
-            cp apkm_extracted/base.apk target.apk
+            # .apkm 여부 확인
+            if unzip -l downloaded | grep -q 'info.json'; then
+              echo "APKM detected, merging with APKEditor..."
+
+              # APKEditor 다운로드
+              APKEDITOR_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest \
+                | jq -r '.assets[] | select(.name | test("APKEditor.*\\.jar$")) | .browser_download_url' \
+                | head -1)
+              wget -q "$APKEDITOR_URL" -O APKEditor.jar
+
+              mkdir apkm_extracted
+              unzip -q downloaded -d apkm_extracted
+
+              # split APK 머지
+              java -jar APKEditor.jar m -i apkm_extracted -o merged.apk
+              cp merged.apk target.apk
+            else
+              cp downloaded target.apk
+            fi
           else
             cp downloaded target.apk
           fi
@@ -64,7 +79,6 @@ jobs:
           JADX_URL=$(curl -s https://api.github.com/repos/skylot/jadx/releases/latest \
             | jq -r '.assets[] | select(.name | test("^jadx-[0-9].*\\.zip$")) | .browser_download_url' \
             | head -1)
-          echo "JADX URL: $JADX_URL"
           wget -q "$JADX_URL" -O jadx.zip
           unzip -q jadx.zip -d jadx
           chmod +x jadx/bin/jadx
