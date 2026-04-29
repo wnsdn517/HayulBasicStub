@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       apk_url:
-        description: 'APK 다운로드 URL'
+        description: 'APK / APKM 다운로드 URL'
         required: true
 
 jobs:
@@ -19,22 +19,35 @@ jobs:
             | grep '"jadx-[0-9][^"]*\.zip"' \
             | head -1 \
             | cut -d'"' -f4)
-          echo "Downloading JADX from $JADX_URL"
           wget -q "$JADX_URL" -O jadx.zip
           unzip -q jadx.zip -d jadx
           chmod +x jadx/bin/jadx
 
-      - name: Download APK
+      - name: Download file
         run: |
-          wget -q "${{ inputs.apk_url }}" -O target.apk
+          wget -q --user-agent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36" \
+            --referer="https://www.apkmirror.com/" \
+            "${{ inputs.apk_url }}" -O downloaded
+
+      - name: Prepare APK
+        run: |
+          FILE_TYPE=$(file -b downloaded)
+          echo "File type: $FILE_TYPE"
+
+          if echo "$FILE_TYPE" | grep -qi zip; then
+            echo "APKM detected, extracting base.apk..."
+            unzip -q downloaded 'base.apk' -d apkm_extracted
+            cp apkm_extracted/base.apk target.apk
+          else
+            cp downloaded target.apk
+          fi
 
       - name: Decompile with JADX
         run: |
           ./jadx/bin/jadx --threads-count 4 -d decompiled target.apk
 
       - name: Zip decompiled output
-        run: |
-          zip -r decompiled.zip decompiled/
+        run: zip -r decompiled.zip decompiled/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
