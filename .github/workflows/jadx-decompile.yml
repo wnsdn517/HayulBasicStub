@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       apk_url:
-        description: 'APKMirror 다운로드 페이지 URL (download/?key=... 형식)'
+        description: 'APKMirror APK 상세 페이지 URL'
         required: true
 
 jobs:
@@ -12,42 +12,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install dependencies
-        run: |
-          pip install playwright beautifulsoup4 -q
-          playwright install chromium
-          playwright install-deps chromium
+      - name: Install Python dependencies
+        run: pip install cloudscraper beautifulsoup4 tqdm -q
 
-      - name: Download APK/APKM via Playwright
+      - name: Download APK/APKM from APKMirror
         run: |
           python3 - <<'EOF'
-          import asyncio
-          from playwright.async_api import async_playwright
+          import time, cloudscraper, os
+          from urllib.parse import unquote
+          from bs4 import BeautifulSoup
 
-          async def main():
-              async with async_playwright() as p:
-                  browser = await p.chromium.launch(headless=True)
-                  ctx = await browser.new_context(
-                      user_agent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
-                  )
-                  page = await ctx.new_page()
+          base_url = "https://www.apkmirror.com"
+          headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0"}
+          scraper = cloudscraper.create_scraper()
+          url = "${{ inputs.apk_url }}"
 
-                  await page.goto("${{ inputs.apk_url }}", wait_until="networkidle")
+          def get_soup(u):
+              return BeautifulSoup(scraper.get(u, headers=headers, timeout=30).text, "html.parser")
 
-                  # 실제 다운로드 링크 추출
-                  async with ctx.expect_download() as dl_info:
-                      btn = await page.query_selector("a[href*='download.php'], .downloadButton a, a[rel='nofollow'][href*='.apk']")
-                      if btn:
-                          await btn.click()
-                      else:
-                          raise Exception("Download button not found")
+          # 1. downloadButton → download 확인 페이지
+          soup = get_soup(url)
+          btn = soup.find("a", {"class": "downloadButton"})
+          if not btn: raise ValueError("downloadButton not found")
+          confirm_url = base_url + btn["href"]
 
-                  download = await dl_info.value
-                  await download.save_as("downloaded")
-                  print(f"Downloaded: {download.suggested_filename}")
-                  await browser.close()
+          # 2. download.php 링크 추출
+          soup2 = get_soup(confirm_url)
+          data = soup2.find("a", {"rel": "nofollow", "data-google-interstitial": "false",
+              "href": lambda h: h and "/wp-content/themes/APKMirror/download.php" in h})
+          if not data: raise ValueError("download.php link not found")
+          dl_url = base_url + data["href"]
 
-          asyncio.run(main())
+          # 3. 실제 다운로드
+          r = scraper.head(dl_url, headers=headers, allow_redirects=True)
+          filename = unquote(r.url.split("/")[-1].split("?")[0]) or "downloaded"
+          r = scraper.get(r.url, headers=headers, stream=True)
+          with open("downloaded", "wb") as f:
+              for chunk in r.iter_content(1024 * 1024):
+                  if chunk: f.write(chunk)
+          print(f"Downloaded: {filename}")
           EOF
 
       - name: Prepare APK
