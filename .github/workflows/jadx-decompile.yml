@@ -30,27 +30,21 @@ jobs:
           def get_soup(u):
               return BeautifulSoup(scraper.get(u, headers=headers, timeout=30).text, "html.parser")
 
-          # 1. downloadButton → download 확인 페이지
           soup = get_soup(url)
           btn = soup.find("a", {"class": "downloadButton"})
           if not btn: raise ValueError("downloadButton not found")
-          confirm_url = base_url + btn["href"]
 
-          # 2. download.php 링크 추출
-          soup2 = get_soup(confirm_url)
+          soup2 = get_soup(base_url + btn["href"])
           data = soup2.find("a", {"rel": "nofollow", "data-google-interstitial": "false",
               "href": lambda h: h and "/wp-content/themes/APKMirror/download.php" in h})
           if not data: raise ValueError("download.php link not found")
-          dl_url = base_url + data["href"]
 
-          # 3. 실제 다운로드
-          r = scraper.head(dl_url, headers=headers, allow_redirects=True)
-          filename = unquote(r.url.split("/")[-1].split("?")[0]) or "downloaded"
+          r = scraper.head(base_url + data["href"], headers=headers, allow_redirects=True)
           r = scraper.get(r.url, headers=headers, stream=True)
           with open("downloaded", "wb") as f:
               for chunk in r.iter_content(1024 * 1024):
                   if chunk: f.write(chunk)
-          print(f"Downloaded: {filename}")
+          print("Downloaded")
           EOF
 
       - name: Prepare APK
@@ -68,10 +62,9 @@ jobs:
       - name: Download JADX
         run: |
           JADX_URL=$(curl -s https://api.github.com/repos/skylot/jadx/releases/latest \
-            | grep browser_download_url \
-            | grep '"jadx-[0-9][^"]*\.zip"' \
-            | head -1 \
-            | cut -d'"' -f4)
+            | jq -r '.assets[] | select(.name | test("^jadx-[0-9].*\\.zip$")) | .browser_download_url' \
+            | head -1)
+          echo "JADX URL: $JADX_URL"
           wget -q "$JADX_URL" -O jadx.zip
           unzip -q jadx.zip -d jadx
           chmod +x jadx/bin/jadx
