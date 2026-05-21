@@ -13,35 +13,50 @@ jobs:
 
     steps:
       - name: Install Python dependencies
-        run: pip install cloudscraper beautifulsoup4 -q
+        run: |
+          pip install playwright requests -q
+          playwright install chromium --with-deps -q
 
       - name: Download APKM from APKMirror
         run: |
           python3 - <<'EOF'
-          import cloudscraper
-          from bs4 import BeautifulSoup
+          from playwright.sync_api import sync_playwright
+          from urllib.parse import urljoin
+          import requests
 
           base_url = "https://www.apkmirror.com"
-          headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0"}
-          scraper = cloudscraper.create_scraper()
+          apk_url = "${{ inputs.apk_url }}"
+          ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-          def get_soup(u):
-              return BeautifulSoup(scraper.get(u, headers=headers, timeout=30).text, "html.parser")
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              context = browser.new_context(user_agent=ua, viewport={"width": 1280, "height": 800})
+              page = context.new_page()
 
-          soup = get_soup("${{ inputs.apk_url }}")
-          btn = soup.find("a", {"class": "downloadButton"})
-          if not btn: raise ValueError("downloadButton not found")
+              page.goto(apk_url, wait_until="networkidle", timeout=60000)
+              btn = page.query_selector("a.downloadButton")
+              if not btn:
+                  raise ValueError("downloadButton not found:\n" + page.content()[:3000])
 
-          soup2 = get_soup(base_url + btn["href"])
-          data = soup2.find("a", {"rel": "nofollow", "data-google-interstitial": "false",
-              "href": lambda h: h and "/wp-content/themes/APKMirror/download.php" in h})
-          if not data: raise ValueError("download.php link not found")
+              download_page_url = urljoin(base_url, btn.get_attribute("href"))
 
-          r = scraper.head(base_url + data["href"], headers=headers, allow_redirects=True)
-          r = scraper.get(r.url, headers=headers, stream=True)
+              page.goto(download_page_url, wait_until="networkidle", timeout=60000)
+              dl_link = page.query_selector('a[rel="nofollow"][data-google-interstitial="false"][href*="download.php"]')
+              if not dl_link:
+                  raise ValueError("download.php link not found:\n" + page.content()[:3000])
+
+              dl_url = urljoin(base_url, dl_link.get_attribute("href"))
+              cookies = {c["name"]: c["value"] for c in context.cookies()}
+              browser.close()
+
+          session = requests.Session()
+          session.cookies.update(cookies)
+          r = session.get(dl_url, headers={"User-Agent": ua, "Referer": base_url}, stream=True)
+          r.raise_for_status()
           with open("target.apkm", "wb") as f:
               for chunk in r.iter_content(1024 * 1024):
-                  if chunk: f.write(chunk)
+                  if chunk:
+                      f.write(chunk)
           print("Downloaded")
           EOF
 
