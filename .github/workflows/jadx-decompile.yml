@@ -33,15 +33,15 @@ jobs:
               context = browser.new_context(user_agent=ua, viewport={"width": 1280, "height": 800})
               page = context.new_page()
 
-              page.goto(apk_url, wait_until="networkidle", timeout=60000)
-              btn = page.query_selector("a.downloadButton")
+              page.goto(apk_url, wait_until="domcontentloaded", timeout=60000)
+              btn = page.wait_for_selector("a.downloadButton", timeout=30000)
               if not btn:
                   raise ValueError("downloadButton not found:\n" + page.content()[:3000])
 
               download_page_url = urljoin(base_url, btn.get_attribute("href"))
 
-              page.goto(download_page_url, wait_until="networkidle", timeout=60000)
-              dl_link = page.query_selector('a[rel="nofollow"][data-google-interstitial="false"][href*="download.php"]')
+              page.goto(download_page_url, wait_until="domcontentloaded", timeout=60000)
+              dl_link = page.wait_for_selector('a[rel="nofollow"][data-google-interstitial="false"][href*="download.php"]', timeout=30000)
               if not dl_link:
                   raise ValueError("download.php link not found:\n" + page.content()[:3000])
 
