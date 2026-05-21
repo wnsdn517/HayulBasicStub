@@ -14,8 +14,8 @@ jobs:
     steps:
       - name: Install Python dependencies
         run: |
-          pip install playwright requests -q
-          playwright install chromium --with-deps -q
+          pip install playwright requests
+          playwright install chromium --with-deps
 
       - name: Download APKM from APKMirror
         run: |
